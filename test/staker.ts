@@ -24,7 +24,7 @@ const deployContract = async (contract: string, params: any[]) => {
 };
 
 const deployContracts = async (rewardsPool: any) => {
-	const para = await deployContract("ParadoxTokeneqe", []);
+	const para = await deployContract("ParadoxToken", []);
 	const staker = await deployContract("StakePool", [
 		para.address,
 		RPS,

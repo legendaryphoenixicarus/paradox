@@ -16,9 +16,6 @@ contract NFTPresale is Ownable {
     IERC20 internal para;
     IERC20 internal usdt;
 
-    address public nftAddress;
-    IERC721 internal nfts;
-
     mapping(address => bool) _claimed;
 
     bytes32 public root;
@@ -37,16 +34,15 @@ contract NFTPresale is Ownable {
 
     struct Lock {
         uint256 total;
+        uint256 max;
+        uint256 paid;
         uint256 debt;
         uint256 startTime;
     }
 
-    constructor (address _usdt, address _nfts, address _paradox, bytes32 _root) {
+    constructor (address _usdt, address _paradox, bytes32 _root) {
         usdtAddress = _usdt;
         usdt = IERC20(_usdt);
-
-        nftAddress = _nfts;
-        nfts = IERC721(_nfts);
 
         paradoxAddress = _paradox;
         para = IERC20(_paradox);
@@ -57,28 +53,40 @@ contract NFTPresale is Ownable {
     function claimParadox(
         address destination,
         uint256 amount,
+        uint256 buyAmount,
         bytes32[] calldata merkleProof
     ) external {
         require(canClaim(destination, amount, merkleProof), "Invalid Claim");
-        require(nfts.balanceOf(msg.sender) * 500 * usdtDecimals >= amount, "Not Enough USDT");
+        uint256 maxUSD = 500 * amount * usdtDecimals;
+        require(buyAmount <= maxUSD, "Wrong amount");
 
-        _claimed[destination] = true;
-
-        uint256 maxUSD = 500 * amount;
         // get exchange rate to para
-        uint256 rate = maxUSD * exchangeRate * paradoxDecimals / usdtDecimals;
+        uint256 rate = buyAmount * exchangeRate * paradoxDecimals / usdtDecimals;
         require(rate <= para.balanceOf(address(this)), "Low balance");
         // give user 10% now
         uint256 rateNow = rate * 10 / 100;
         uint256 vestingRate = rate - rateNow;
 
-        locks[destination] = Lock({
-            total: vestingRate,
-            debt: 0,
-            startTime: block.timestamp
-        });
+        if (locks[destination].total == 0) {
+            // new claim
+            locks[destination] = Lock({
+                total: vestingRate,
+                max: maxUSD,
+                paid: buyAmount,
+                debt: 0,
+                startTime: block.timestamp
+            });
 
-        usdt.safeTransferFrom(destination, address(this), maxUSD);
+            if (buyAmount == maxUSD) _claimed[destination] = true;
+        } else {
+            // at this point, the user still has some pending amount they can claim
+            require(buyAmount + locks[destination].paid <= locks[destination].max, "Too Much");
+
+            locks[destination].total += vestingRate;
+            if (buyAmount + locks[destination].paid == locks[destination].max) _claimed[destination] = true;
+        }
+
+        usdt.safeTransferFrom(destination, address(this), buyAmount);
         para.safeTransfer(destination, rateNow);
     }
 
